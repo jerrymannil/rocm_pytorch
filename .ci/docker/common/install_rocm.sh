@@ -21,6 +21,11 @@ install_ubuntu() {
         echo -e 'Package: *\nPin: release o=repo.radeon.com\nPin-Priority: 600' \
             | sudo tee /etc/apt/preferences.d/rocm-pin-600
     fi
+    if [[ $UBUNTU_VERSION == 24.04 ]]; then
+        apt-get install -y --no-install-recommends gpg-agent
+        echo -e 'Package: *\nPin: release o=repo.radeon.com\nPin-Priority: 600' \
+            | sudo tee /etc/apt/preferences.d/rocm-pin-600
+    fi
     apt-get install -y kmod
     apt-get install -y wget
 

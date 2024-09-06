@@ -50,6 +50,8 @@ if [[ "$image" == *-focal* ]]; then
   UBUNTU_VERSION=20.04
 elif [[ "$image" == *-jammy* ]]; then
   UBUNTU_VERSION=22.04
+elif [[ "$image" == *-noble* ]]; then
+  UBUNTU_VERSION=24.04
 elif [[ "$image" == *ubuntu* ]]; then
   extract_version_from_image_name ubuntu UBUNTU_VERSION
 elif [[ "$image" == *centos* ]]; then
@@ -66,8 +68,8 @@ else
 fi
 
 DOCKERFILE="${OS}/Dockerfile"
-# When using ubuntu - 22.04, start from Ubuntu docker image, instead of nvidia/cuda docker image.
-if [[ "$image" == *cuda* && "$UBUNTU_VERSION" != "22.04" ]]; then
+# When using ubuntu >= 22.04, start from Ubuntu docker image, instead of nvidia/cuda docker image.
+if [[ "$image" == *cuda* && "$UBUNTU_VERSION" != "22.04" && "$UBUNTU_VERSION" != "24.04" ]]; then
   DOCKERFILE="${OS}-cuda/Dockerfile"
 elif [[ "$image" == *rocm* ]]; then
   DOCKERFILE="${OS}-rocm/Dockerfile"

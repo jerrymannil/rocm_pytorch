@@ -259,7 +259,7 @@ case "$image" in
     GCC_VERSION=11
     PROTOBUF=yes
     VISION=yes
-    ROCM_VERSION=6.2.4
+    ROCM_VERSION=6.3
     NINJA_VERSION=1.9.0
     CONDA_CMAKE=yes
     TRITON=yes
@@ -273,7 +273,7 @@ case "$image" in
     GCC_VERSION=11
     PROTOBUF=yes
     VISION=yes
-    ROCM_VERSION=6.3
+    ROCM_VERSION=6.4
     NINJA_VERSION=1.9.0
     CONDA_CMAKE=yes
     TRITON=yes

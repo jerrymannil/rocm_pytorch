@@ -5092,39 +5092,16 @@ tensor(..., device='meta', size=(1,), requires_grad=True)""")
             self.assertEqual(out1, out2)
 
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-    @parametrize_test("mixed", [False, True])
-    @parametrize_test("dtype", [torch.float, torch.half, torch.bfloat16])
-    def test_batchnorm_nhwc_eval(self, mixed, dtype):
-        if mixed and dtype == torch.float:
-            self.skipTest("mixed precision is useless for float32")
-        if TEST_WITH_ROCM and not mixed and dtype in (torch.half, torch.bfloat16):
-            self.skipTest("pure mode not supported for bf16/fp16 on ROCm")
-        if TEST_WITH_ROCM:
-            self.skipTest("NHWC batchnorm disabled on ROCm6.4 SWDEV-510757 SWDEV-509640")
-
-        (N, C, H, W) = 2, 64, 50, 50
-        model = torch.nn.BatchNorm2d(C, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
-        model = model.eval().cuda()
-        if not mixed:
-            model = model.to(dtype)
-        inp1 = torch.randn(N, C, H, W, device=torch.device('cuda'), dtype=dtype)
-        inp2 = inp1.contiguous(memory_format=torch.channels_last)
-        out1 = model(inp1)
-        out2 = model(inp2)
-        self.assertEqual(out1, out2)
-
-    # TODO: enable inference mode later
-    # @parametrize_test("mode", ["train", "eval"], name_fn=lambda x: x)
-    @parametrize_test("mode", ["train"], name_fn=lambda x: x)
+    @parametrize_test("mode", ["train", "inference"], name_fn=lambda x: x)
     @parametrize_test(
-        # test verifies cudnn/miopen batchnorm with the reference backend
+        # test verifies cudnn/miopen batchnorm with the reference backend or memory format
         # memory_format - one of ("NCHW", NHWC")
         # ref_backend - one of ("cpu", "native", "NCHW", "NHWC")
         #   "cpu"    - cpu backend with the same memory_format will be used as reference
         #   "native" - native backend (`with torch.backends.cudnn.flags(enabled=False)`)
         #              with the same memory_format will be used
-        #   "NCHW" or "NHWC" - the same reference backend will be used but with given memory format
-        # mixed - True or False. Mixed batchnorm mode wher inputs are 16-bit and batchnorm is fp32
+        #   "NCHW" or "NHWC" - the same backend will be used but another memory format
+        # mixed - True or False. Mixed batchnorm mode where inputs are 16-bit and batchnorm is fp32
         #
         "memory_format,ref_backend,mixed,dtype",
         [
@@ -5134,7 +5111,8 @@ tensor(..., device='meta', size=(1,), requires_grad=True)""")
 
             ("NCHW", "native", False, torch.float),
             ("NCHW", "native", True, torch.half),
-            subtest(("NCHW", "native", True, torch.bfloat16), decorators=[unittest.expectedFailure]),
+            # this config failed for train and passed for inference
+            # subtest(("NCHW", "native", True, torch.bfloat16), decorators=[unittest.expectedFailure]),
 
             ("NHWC", "cpu", False, torch.float),
             ("NHWC", "cpu", True, torch.half),
@@ -5248,19 +5226,36 @@ tensor(..., device='meta', size=(1,), requires_grad=True)""")
             # _test_batchnorm_train(input=input, grad=grad, mixed=mixed,
             #                       ref_input=ref_input, ref_grad=ref_grad, ref_backend=ref_backend)
 
-        PYTORCH_MIOPEN_SUGGEST_NHWC = "PYTORCH_MIOPEN_SUGGEST_NHWC_BATCHNORM"
-        prev_val = os.getenv(PYTORCH_MIOPEN_SUGGEST_NHWC)
+        def _inference(memory_format, ref_backend, mixed, dtype):
+            memory_format = torch.contiguous_format if memory_format == "NCHW" else torch.channels_last
+            ref_memory_format = _get_backend_memory_format(ref_backend, memory_format)
+            ref_device = _get_ref_device(ref_backend, device="cuda")
+
+            size = (2, 64, 50, 50)
+            inp = _create_tensor(size, memory_format, dtype, device="cuda")
+            ref_inp = inp.detach().clone(memory_format=ref_memory_format).to(device=ref_device)
+            mod = _create_backend(inp, mixed).eval()
+            ref_mod = _create_backend(ref_inp, mixed).eval()
+
+            out = mod(inp)
+            with torch.backends.cudnn.flags(enabled=False) if ref_backend == "native" else contextlib.nullcontext():
+                ref_out = ref_mod(ref_inp)
+            self.assertEqual(out, ref_out)
+
+        # TODO: Remove PYTORCH_MIOPEN_SUGGEST_NHWC_BATCHNORM once ROCm officially supports NHWC in MIOpen
+        PYTORCH_MIOPEN_SUGGEST_NHWC_BATCHNORM = "PYTORCH_MIOPEN_SUGGEST_NHWC_BATCHNORM"
+        prev_val = os.getenv(PYTORCH_MIOPEN_SUGGEST_NHWC_BATCHNORM)
         try:
-            os.environ[PYTORCH_MIOPEN_SUGGEST_NHWC] = "1"
+            os.environ[PYTORCH_MIOPEN_SUGGEST_NHWC_BATCHNORM] = "1"
             if mode == "train":
                 _train(memory_format, ref_backend, mixed, dtype)
             else:
-                raise NotImplementedError("Batchnorm train not implemented")
+                _inference(memory_format, ref_backend, mixed, dtype)
         finally:
             if prev_val is None:
-                del os.environ[PYTORCH_MIOPEN_SUGGEST_NHWC]
+                del os.environ[PYTORCH_MIOPEN_SUGGEST_NHWC_BATCHNORM]
             else:
-                os.environ[PYTORCH_MIOPEN_SUGGEST_NHWC] = prev_val
+                os.environ[PYTORCH_MIOPEN_SUGGEST_NHWC_BATCHNORM] = prev_val
 
     def test_batchnorm_load_state_dict(self):
         bn = torch.nn.BatchNorm2d(3)

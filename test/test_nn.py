@@ -5111,7 +5111,7 @@ tensor(..., device='meta', size=(1,), requires_grad=True)""")
 
             ("NCHW", "native", False, torch.float),
             ("NCHW", "native", True, torch.half),
-            # this config failed for train and passed for inference
+            # this config failed for train and passed for inference on ROCm
             # subtest(("NCHW", "native", True, torch.bfloat16), decorators=[unittest.expectedFailure]),
 
             ("NHWC", "cpu", False, torch.float),
@@ -5134,31 +5134,28 @@ tensor(..., device='meta', size=(1,), requires_grad=True)""")
             t = t.random_(1, 10)
             return t
 
-        def _get_ref_device(backend: str | None = None, device: str | None = None):
-            if backend is None or backend == "native":
+        def _get_ref_device(backend: str , device: str):
+            # If 'backend' specifies the memory format, return 'device' arg, otherwise return a device matches the backend
+            if backend in ("NHWC", "NCHW"):
+                return device
+            if backend == "native":
                 return "cuda"
             if backend == "cpu":
                 return "cpu"
-            if backend in ("NHWC", "NCHW"):
-                if device is not None:
-                    return device
-                else:
-                    raise ValueError("device required for backend ('NHWC', 'NCHW')")
             else:
                 raise ValueError("Unknown backend")
 
-        def _get_backend_memory_format(backend: str, memory_format: str | None = None):
+        def _get_backend_memory_format(backend: str, memory_format: torch.memory_format) -> torch.memory_format:
+            # If 'backend' specifies the memory format, return it, otherwise look at 'memory_format' arg
             if backend == "NHWC":
                 return torch.channels_last
             if backend == "NCHW":
                 return torch.contiguous_format
-            if memory_format == torch.contiguous_format:
-                return torch.contiguous_format
-            if memory_format == torch.channels_last:
-                return torch.channels_last
-            raise ValueError("Unknown memory format")
+            if memory_format in (torch.contiguous_format, torch.channels_last):
+                return memory_format
+            raise ValueError("Unable to detect memory format for backend={backend} and memory_format={memory_format}")
 
-        def _get_memory_format(t: torch.Tensor):
+        def _get_memory_format(t: torch.Tensor) -> torch.memory_format:
             if t.is_contiguous(memory_format=torch.contiguous_format):
                 return torch.contiguous_format
             if t.is_contiguous(memory_format=torch.channels_last):
@@ -5174,7 +5171,7 @@ tensor(..., device='meta', size=(1,), requires_grad=True)""")
             mod.weight.data.uniform_()
             mod.bias.data.uniform_()
 
-            ref_mod = _create_backend(ref_inp, mixed)
+            ref_mod = _create_backend(ref_inp, mixed).train()
             ref_mod.load_state_dict(mod.state_dict())
 
             out = mod(inp)
